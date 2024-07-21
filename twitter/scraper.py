@@ -2,7 +2,6 @@ import asyncio
 import logging.config
 import math
 import platform
-import sys
 from functools import partial
 from typing import Generator
 
@@ -40,7 +39,6 @@ class Scraper:
         self.guest = False
         self.logger = self._init_logger(**kwargs)
         self.session = self._validate_session(email, username, password, session, **kwargs)
-        self.rate_limits = {}
 
     def users(self, screen_names: list[str], **kwargs) -> list[dict]:
         """
@@ -291,28 +289,30 @@ class Scraper:
         media = {}
         for data in tweets:
             for tweet in data.get('data', {}).get('tweetResult', []):
-                # TweetWithVisibilityResults and Tweet have different structures
-                root = tweet.get('result', {}).get('tweet', {}) or tweet.get('result', {})
-                if _id := root.get('rest_id'):
-                    date = root.get('legacy', {}).get('created_at', '')
-                    uid = root.get('legacy', {}).get('user_id_str', '')
+                if _id := tweet.get('result', {}).get('rest_id'):
+
+                    date = tweet.get('result', {}).get('legacy', {}).get('created_at', '')
+                    uid = tweet.get('result', {}).get('legacy', {}).get('user_id_str', '')
                     media[_id] = {'date': date, 'uid': uid, 'img': set(), 'video': {'thumb': set(), 'video_info': {}, 'hq': set()}, 'card': []}
-                    for _media in (y for x in find_key(root, 'media') for y in x if isinstance(x, list)):
+
+                    for _media in (y for x in find_key(tweet['result'], 'media') for y in x if isinstance(x, list)):
                         if videos:
                             if vinfo := _media.get('video_info'):
                                 hq = sorted(vinfo.get('variants', []), key=lambda x: -x.get('bitrate', 0))[0]['url']
                                 media[_id]['video']['video_info'] |= vinfo
                                 media[_id]['video']['hq'].add(hq)
+
                         if video_thumb:
                             if url := _media.get('media_url_https', ''):
                                 media[_id]['video']['thumb'].add(url)
+
                         if photos:
                             if (url := _media.get('media_url_https', '')) and "_video_thumb" not in url:
                                 if hq_img_variant:
                                     url = f'{url}?name=orig'
                                 media[_id]['img'].add(url)
                     if cards:
-                        if card := root.get('card', {}).get('legacy', {}):
+                        if card := tweet.get('result', {}).get('card', {}).get('legacy', {}):
                             media[_id]['card'].extend(card.get('binding_values', []))
         if metadata_out:
             media = set2list(media)
@@ -594,12 +594,6 @@ class Scraper:
             'features': Operation.default_features,
         }
         r = await client.get(f'https://twitter.com/i/api/graphql/{qid}/{name}', params=build_params(params))
-
-        try:
-            self.rate_limits[name] = {k: int(v) for k, v in r.headers.items() if 'rate-limit' in k}
-        except Exception as e:
-            self.logger.debug(f'{e}')
-
         if self.debug:
             log(self.logger, self.debug, r)
         if self.save:
@@ -900,6 +894,3 @@ class Scraper:
         """ Save cookies to file """
         cookies = self.session.cookies
         Path(f'{fname or cookies.get("username")}.cookies').write_bytes(orjson.dumps(dict(cookies)))
-
-    def _v1_rate_limits(self):
-        return self.session.get('https://api.twitter.com/1.1/application/rate_limit_status.json').json()

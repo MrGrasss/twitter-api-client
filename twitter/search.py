@@ -40,6 +40,10 @@ class Search:
         self.save = kwargs.get('save', True)
         self.debug = kwargs.get('debug', 0)
         self.logger = self._init_logger(**kwargs)
+        if kwargs.get('proxies'):
+            self.proxies = kwargs['proxies']
+        else:
+            self.proxies = None
         self.session = self._validate_session(email, username, password, session, **kwargs)
 
     def run(self, queries: list[dict], limit: int = math.inf, out: str = 'data/search_results', **kwargs):
@@ -48,7 +52,7 @@ class Search:
         return asyncio.run(self.process(queries, limit, out, **kwargs))
 
     async def process(self, queries: list[dict], limit: int, out: Path, **kwargs) -> list:
-        async with AsyncClient(headers=get_headers(self.session)) as s:
+        async with AsyncClient(headers=get_headers(self.session), proxies=self.proxies) as s:
             return await asyncio.gather(*(self.paginate(s, q, limit, out, **kwargs) for q in queries))
 
     async def paginate(self, client: AsyncClient, query: dict, limit: int, out: Path, **kwargs) -> list[dict]:
@@ -72,14 +76,12 @@ class Search:
             data, entries, cursor = await self.backoff(lambda: self.get(client, params), **kwargs)
             res.extend(entries)
             if len(entries) <= 2 or len(total) >= limit:  # just cursors
-                if self.debug:
-                    self.logger.debug(f'[{GREEN}success{RESET}] Returned {len(total)} search results for {query["query"]}')
+                self.debug and self.logger.debug(
+                    f'[{GREEN}success{RESET}] Returned {len(total)} search results for {query["query"]}')
                 return res
             total |= set(find_key(entries, 'entryId'))
-            if self.debug:
-                self.logger.debug(f'{query["query"]}')
-            if self.save:
-                (out / f'{time.time_ns()}.json').write_bytes(orjson.dumps(entries))
+            self.debug and self.logger.debug(f'{query["query"]}')
+            self.save and (out / f'{time.time_ns()}.json').write_bytes(orjson.dumps(entries))
 
     async def get(self, client: AsyncClient, params: dict) -> tuple:
         _, qid, name = Operation.SearchTimeline
@@ -135,8 +137,7 @@ class Search:
 
             return logging.getLogger(logger_name)
 
-    @staticmethod
-    def _validate_session(*args, **kwargs):
+    def _validate_session(self, *args, **kwargs):
         email, username, password, session = args
 
         # validate credentials
@@ -152,13 +153,14 @@ class Search:
 
         # try validating cookies dict
         if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}):
-            _session = Client(cookies=cookies, follow_redirects=True)
+            _session = Client(cookies=cookies, follow_redirects=True, proxies=self.proxies)
             _session.headers.update(get_headers(_session))
             return _session
 
         # try validating cookies from file
         if isinstance(cookies, str):
-            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True)
+            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True,
+                              proxies=self.proxies)
             _session.headers.update(get_headers(_session))
             return _session
 

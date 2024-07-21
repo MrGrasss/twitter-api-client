@@ -20,6 +20,7 @@ from .util import *
 try:
     if get_ipython().__class__.__name__ == 'ZMQInteractiveShell':
         import nest_asyncio
+
         nest_asyncio.apply()
 except:
     ...
@@ -27,6 +28,7 @@ except:
 if platform.system() != 'Windows':
     try:
         import uvloop
+
         uvloop.install()
     except ImportError as e:
         ...
@@ -41,8 +43,11 @@ class Account:
         self.v1_api = 'https://api.twitter.com/1.1'
         self.v2_api = 'https://twitter.com/i/api/2'
         self.logger = self._init_logger(**kwargs)
+        if kwargs.get('proxies'):
+            self.proxies = kwargs['proxies']
+        else:
+            self.proxies = None
         self.session = self._validate_session(email, username, password, session, **kwargs)
-        self.rate_limits = {}
 
     def gql(self, method: str, operation: tuple, variables: dict, features: dict = Operation.default_features) -> dict:
         qid, op = operation
@@ -61,7 +66,6 @@ class Account:
             headers=get_headers(self.session),
             **data
         )
-        self.rate_limits[op] = {k: int(v) for k, v in r.headers.items() if 'rate-limit' in k}
         if self.debug:
             log(self.logger, self.debug, r)
         return r.json()
@@ -614,8 +618,7 @@ class Account:
 
             return logging.getLogger(logger_name)
 
-    @staticmethod
-    def _validate_session(*args, **kwargs):
+    def _validate_session(self, *args, **kwargs):
         email, username, password, session = args
 
         # validate credentials
@@ -634,14 +637,15 @@ class Account:
 
         # try validating cookies dict
         if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}):
-            _session = Client(cookies=cookies, follow_redirects=True)
+            _session = Client(cookies=cookies, follow_redirects=True, proxy=self.proxies)
             _session._init_with_cookies = True
             _session.headers.update(get_headers(_session))
             return _session
 
         # try validating cookies from file
         if isinstance(cookies, str):
-            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True)
+            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True,
+                              proxy=self.proxies)
             _session._init_with_cookies = True
             _session.headers.update(get_headers(_session))
             return _session
