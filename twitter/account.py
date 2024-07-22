@@ -636,9 +636,9 @@ class Account:
         cookies = kwargs.get('cookies')
 
         # try validating cookies dict
-        if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}):
+        if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}) or kwargs.get("token_only"):
             _session = Client(cookies=cookies, follow_redirects=True, proxy=self.proxies)
-            _session._init_with_cookies = True
+            _session._init_with_cookies = False if kwargs.get("token_only") else True
             _session.headers.update(get_headers(_session))
             return _session
 

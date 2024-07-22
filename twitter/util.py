@@ -132,6 +132,11 @@ def get_headers(session, **kwargs) -> dict:
         'x-twitter-active-user': 'yes',
         'x-twitter-client-language': 'en',
     }
+
+    if not cookies.get('ct0'):
+        r = session.post('https://api.twitter.com/1.1/account/update_profile.json', headers=headers, params=kwargs)
+        session.cookies.set('ct0', r.cookies.get('ct0'), domain='.twitter.com', path='/')
+
     return dict(sorted({k.lower(): v for k, v in headers.items()}.items()))
 
 
