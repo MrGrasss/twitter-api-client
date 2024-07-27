@@ -145,6 +145,8 @@ class Account:
             if media:
                 for m in media:
                     media_id = self._upload_media(m['media'])
+                    if not media_id:
+                        raise Exception("Media upload failed, media_id is None")
                     variables['post_tweet_request']['media_ids'].append(media_id)
                     if alt := m.get('alt'):
                         self._add_alt_text(media_id, alt)
@@ -163,6 +165,8 @@ class Account:
         if media:
             for m in media:
                 media_id = self._upload_media(m['media'])
+                if not media_id:
+                    raise Exception("Media upload failed, media_id is None")
                 variables['media']['media_entities'].append({
                     'media_id': media_id,
                     'tagged_users': m.get('tagged_users', [])
