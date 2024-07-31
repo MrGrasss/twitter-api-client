@@ -121,7 +121,8 @@ class Operation:
 
     # Account Operations
     useSendMessageMutation = 'MaxK2PKX1F9Z-9SwqwavTw', 'useSendMessageMutation'
-    CreateTweet = '7TKRKCPuAGsmYde0CudbVg', 'CreateTweet'
+    # CreateTweet = '7TKRKCPuAGsmYde0CudbVg', 'CreateTweet'
+    CreateTweet = 'FcQ8KP1fbPXkq2AugbyXGw', 'CreateTweet'
     DeleteTweet = 'VaenaVgh5q5ih7kvyVjgtg', 'DeleteTweet'
     CreateScheduledTweet = 'LCVzRQGxOaGnOnYH01NQXg', 'CreateScheduledTweet'
     DeleteScheduledTweet = 'CTOVqej0JBXAZSwkp1US0g', 'DeleteScheduledTweet'
@@ -404,7 +405,14 @@ class Operation:
         'tweetypie_unmention_optimization_enabled': True,
         'verified_phone_label_enabled': False,
         'vibe_api_enabled': True,
-        'view_counts_everywhere_api_enabled': True
+        'view_counts_everywhere_api_enabled': True,
+
+        # additional features
+        'communities_web_enable_tweet_community_results_fetch': True,
+        'rweb_video_timestamps_enabled': True,
+        'rweb_tipjar_consumption_enabled': True,
+        'creator_subscriptions_quote_tweet_preview_enabled': True,
+        'articles_preview_enabled': True
     }
 
 

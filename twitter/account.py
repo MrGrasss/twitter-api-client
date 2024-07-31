@@ -143,7 +143,7 @@ class Account:
                 },
             }
             if media:
-                for m in media:
+                for i, m in enumerate(media):
                     media_id = self._upload_media(m['media'])
                     if not media_id:
                         raise Exception("Media upload failed, media_id is None")
@@ -163,7 +163,7 @@ class Account:
 
         # regular tweet
         if media:
-            for m in media:
+            for i, m in enumerate(media):
                 media_id = self._upload_media(m['media'])
                 if not media_id:
                     raise Exception("Media upload failed, media_id is None")
@@ -229,7 +229,7 @@ class Account:
         variables = {'tweet_id': tweet_id, 'dark_request': False}
         return self.gql('POST', Operation.DeleteTweet, variables)
 
-    def reply(self, text: str, tweet_id: int) -> dict:
+    def reply(self, text: str, *, media: any = None, tweet_id: int) -> dict:
         variables = {
             'tweet_text': text,
             'reply': {
@@ -244,6 +244,19 @@ class Account:
             },
             'semantic_annotation_ids': [],
         }
+
+        if media:
+            for i, m in enumerate(media):
+                media_id = self._upload_media(m['media'])
+                if not media_id:
+                    raise Exception("Media upload failed, media_id is None")
+                variables['media']['media_entities'].append({
+                    'media_id': media_id,
+                    'tagged_users': m.get('tagged_users', [])
+                })
+                if alt := m.get('alt'):
+                    self._add_alt_text(media_id, alt)
+
         return self.gql('POST', Operation.CreateTweet, variables)
 
     def quote(self, text: str, tweet_id: int) -> dict:
