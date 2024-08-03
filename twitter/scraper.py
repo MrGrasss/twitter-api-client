@@ -38,6 +38,10 @@ class Scraper:
         self.out = Path(kwargs.get('out', 'data'))
         self.guest = False
         self.logger = self._init_logger(**kwargs)
+        if kwargs.get('proxies'):
+            self.proxies = kwargs['proxies']
+        else:
+            self.proxies = None
         self.session = self._validate_session(email, username, password, session, **kwargs)
 
     def users(self, screen_names: list[str], **kwargs) -> list[dict]:
@@ -243,7 +247,8 @@ class Scraper:
         """
         return self._run(Operation.UserByRestId, user_ids, **kwargs)
 
-    def download_media(self, ids: list[int], photos: bool = True, videos: bool = True, cards: bool = True, hq_img_variant: bool = True, video_thumb: bool = False, out: str = 'media',
+    def download_media(self, ids: list[int], photos: bool = True, videos: bool = True, cards: bool = True,
+                       hq_img_variant: bool = True, video_thumb: bool = False, out: str = 'media',
                        metadata_out: str = 'media.json', **kwargs) -> dict:
         """
         Download and extract media metadata from Tweets
@@ -266,7 +271,8 @@ class Scraper:
                 'keepalive_expiry': kwargs.pop('keepalive_expiry', 5.0),
             }
             headers = {'user-agent': random.choice(USER_AGENTS)}
-            async with AsyncClient(limits=Limits(**limits), headers=headers, http2=True, verify=False, timeout=60, follow_redirects=True) as client:
+            async with AsyncClient(limits=Limits(**limits), headers=headers, http2=True, verify=False, timeout=60,
+                                   follow_redirects=True, proxy=self.proxies) as client:
                 return await tqdm_asyncio.gather(*(fn(client=client) for fn in fns), desc='Downloading Media')
 
         def download(urls: list[tuple], out: str) -> Generator:
@@ -293,7 +299,8 @@ class Scraper:
 
                     date = tweet.get('result', {}).get('legacy', {}).get('created_at', '')
                     uid = tweet.get('result', {}).get('legacy', {}).get('user_id_str', '')
-                    media[_id] = {'date': date, 'uid': uid, 'img': set(), 'video': {'thumb': set(), 'video_info': {}, 'hq': set()}, 'card': []}
+                    media[_id] = {'date': date, 'uid': uid, 'img': set(),
+                                  'video': {'thumb': set(), 'video_info': {}, 'hq': set()}, 'card': []}
 
                     for _media in (y for x in find_key(tweet['result'], 'media') for y in x if isinstance(x, list)):
                         if videos:
@@ -358,7 +365,7 @@ class Scraper:
             offsets = utc or ["-1200", "-1100", "-1000", "-0900", "-0800", "-0700", "-0600", "-0500", "-0400", "-0300",
                               "-0200", "-0100", "+0000", "+0100", "+0200", "+0300", "+0400", "+0500", "+0600", "+0700",
                               "+0800", "+0900", "+1000", "+1100", "+1200", "+1300", "+1400"]
-            async with AsyncClient(headers=get_headers(self.session)) as client:
+            async with AsyncClient(headers=get_headers(self.session), proxy=self.proxies) as client:
                 tasks = (get_trends(client, o, url) for o in offsets)
                 if self.pbar:
                     return await tqdm_asyncio.gather(*tasks, desc='Getting trends')
@@ -516,7 +523,8 @@ class Scraper:
             limits = Limits(max_connections=100, max_keepalive_connections=10)
             headers = self.session.headers if self.guest else get_headers(self.session)
             cookies = self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20,
+                                   proxy=self.proxies) as c:
                 tasks = (get(c, key) for key in keys)
                 if self.pbar:
                     return await tqdm_asyncio.gather(*tasks, desc='Downloading chat data')
@@ -583,9 +591,17 @@ class Scraper:
 
         # queries are of type set | list[int|str], need to convert to list[dict]
         _queries = [{k: q} for q in queries for k, v in keys.items()]
-        res = asyncio.run(self._process(operation, _queries, **kwargs))
+        cursor = None
+        if kwargs.get('return_cursor'):
+            res, cursor = asyncio.run(self._process(operation, _queries, **kwargs))
+        else:
+            res = asyncio.run(self._process(operation, _queries, **kwargs))
         data = get_json(res, **kwargs)
-        return data.pop() if kwargs.get('cursor') else flatten(data)
+
+        if cursor or kwargs.get('cursor'):
+            return flatten(data), cursor
+        else:
+            return data.pop() if kwargs.get('cursor') else flatten(data)
 
     async def _query(self, client: AsyncClient, operation: tuple, **kwargs) -> Response:
         keys, qid, name = operation
@@ -603,15 +619,35 @@ class Scraper:
     async def _process(self, operation: tuple, queries: list[dict], **kwargs):
         headers = self.session.headers if self.guest else get_headers(self.session)
         cookies = self.session.cookies
-        async with AsyncClient(limits=Limits(max_connections=MAX_ENDPOINT_LIMIT), headers=headers, cookies=cookies, timeout=20) as c:
+        async with AsyncClient(
+                limits=Limits(max_connections=MAX_ENDPOINT_LIMIT),
+                headers=headers,
+                cookies=cookies,
+                timeout=20,
+                proxy=self.proxies
+        ) as c:
             tasks = (self._paginate(c, operation, **q, **kwargs) for q in queries)
-            if self.pbar:
-                return await tqdm_asyncio.gather(*tasks, desc=operation[-1])
-            return await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks)
+
+            # Handle results to ensure they match expected format
+            processed_results = []
+            for result in results:
+                if isinstance(result, tuple) and len(result) == 2:
+                    processed_results.append(result)
+                else:
+                    # Handle unexpected result format
+                    processed_results.append((result, None))
+
+            # Unpack results if return_cursor is True
+            if kwargs.get('return_cursor'):
+                return processed_results[0], processed_results[0][1]
+
+            return processed_results
 
     async def _paginate(self, client: AsyncClient, operation: tuple, **kwargs):
         limit = kwargs.pop('limit', math.inf)
         cursor = kwargs.pop('cursor', None)
+        return_cursor = kwargs.pop('return_cursor', None)
         is_resuming = False
         dups = 0
         DUP_LIMIT = 3
@@ -622,6 +658,9 @@ class Scraper:
         else:
             try:
                 r = await self._query(client, operation, **kwargs)
+                if 'Rate limit exceeded' in r.text:
+                    return [r], "rate_limit"
+
                 initial_data = r.json()
                 res = [r]
                 ids = {x for x in find_key(initial_data, 'rest_id') if x[0].isnumeric()}
@@ -630,6 +669,8 @@ class Scraper:
             except Exception as e:
                 if self.debug:
                     self.logger.error(f'Failed to get initial pagination data: {e}')
+                if 'Rate limit exceeded' in r.text:
+                    return [r], "rate_limit"
                 return
         while (dups < DUP_LIMIT) and cursor:
             prev_len = len(ids)
@@ -641,6 +682,8 @@ class Scraper:
             except Exception as e:
                 if self.debug:
                     self.logger.error(f'Failed to get pagination data\n{e}')
+                if 'Rate limit exceeded' in r.text:
+                    return [r], "rate_limit"
                 return
             cursor = get_cursor(data)
             ids |= {x for x in find_key(data, 'rest_id') if x[0].isnumeric()}
@@ -651,6 +694,8 @@ class Scraper:
                 dups += 1
             res.append(r)
         if is_resuming:
+            return res, cursor
+        elif return_cursor:
             return res, cursor
         return res
 
@@ -733,7 +778,7 @@ class Scraper:
             return r.json()
 
         limits = Limits(max_connections=100)
-        async with AsyncClient(headers=client.headers, limits=limits, timeout=30) as c:
+        async with AsyncClient(headers=client.headers, limits=limits, timeout=30, proxy=self.proxies) as c:
             tasks = (get(c, _id) for _id in spaces)
             if self.pbar:
                 return await tqdm_asyncio.gather(*tasks, desc='Getting live transcripts')
@@ -832,7 +877,8 @@ class Scraper:
         async def process(spaces: list[dict]):
             limits = Limits(max_connections=100)
             headers, cookies = self.session.headers, self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20,
+                                   proxy=self.proxies) as c:
                 return await asyncio.gather(*(poll_space(c, space) for space in spaces))
 
         spaces = self.spaces(rooms=rooms)
@@ -869,13 +915,14 @@ class Scraper:
 
         # try validating cookies dict
         if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}):
-            _session = Client(cookies=cookies, follow_redirects=True)
+            _session = Client(cookies=cookies, follow_redirects=True, proxies=self.proxies)
             _session.headers.update(get_headers(_session))
             return _session
 
         # try validating cookies from file
         if isinstance(cookies, str):
-            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True)
+            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True,
+                              proxies=self.proxies)
             _session.headers.update(get_headers(_session))
             return _session
 

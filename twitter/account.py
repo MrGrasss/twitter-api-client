@@ -654,15 +654,14 @@ class Account:
 
         # try validating cookies dict
         if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}) or kwargs.get("token_only"):
-            _session = Client(cookies=cookies, follow_redirects=True, proxy=self.proxies)
+            _session = Client(cookies=cookies, follow_redirects=True, proxies=self.proxies)
             _session._init_with_cookies = False if kwargs.get("token_only") else True
             _session.headers.update(get_headers(_session))
             return _session
 
         # try validating cookies from file
         if isinstance(cookies, str):
-            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True,
-                              proxy=self.proxies)
+            _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True, proxies=self.proxies)
             _session._init_with_cookies = True
             _session.headers.update(get_headers(_session))
             return _session
@@ -716,7 +715,7 @@ class Account:
         async def process(ids):
             limits = Limits(max_connections=100)
             headers, cookies = get_headers(self.session), self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20, proxy=self.proxies) as c:
                 return await tqdm_asyncio.gather(*(get(c, _id) for _id in ids), desc="Getting DMs")
 
         if conversation_ids:
