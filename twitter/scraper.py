@@ -651,6 +651,7 @@ class Scraper:
         is_resuming = False
         dups = 0
         DUP_LIMIT = 3
+        r = None
         if cursor:
             is_resuming = True
             res = []
@@ -658,7 +659,7 @@ class Scraper:
         else:
             try:
                 r = await self._query(client, operation, **kwargs)
-                if 'Rate limit exceeded' in r.text:
+                if r and 'Rate limit exceeded' in r.text:
                     return [r], "rate_limit"
 
                 initial_data = r.json()
@@ -669,7 +670,7 @@ class Scraper:
             except Exception as e:
                 if self.debug:
                     self.logger.error(f'Failed to get initial pagination data: {e}')
-                if 'Rate limit exceeded' in r.text:
+                if r and 'Rate limit exceeded' in r.text:
                     return [r], "rate_limit"
                 return
         while (dups < DUP_LIMIT) and cursor:
@@ -682,7 +683,7 @@ class Scraper:
             except Exception as e:
                 if self.debug:
                     self.logger.error(f'Failed to get pagination data\n{e}')
-                if 'Rate limit exceeded' in r.text:
+                if r and 'Rate limit exceeded' in r.text:
                     return [r], "rate_limit"
                 return
             cursor = get_cursor(data)
